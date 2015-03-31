@@ -124,8 +124,8 @@ class CaffeTrainTask(TrainTask):
         train_data_layer = None
         val_data_layer = None
         hidden_layers = caffe_pb2.NetParameter()
-        loss_layer = None
-        accuracy_layer = None
+        loss_layers = []
+        accuracy_layers = []
         for layer in self.network.layer:
             assert layer.type not in ['MemoryData', 'HDF5Data', 'ImageData'], 'unsupported data layer type'
             if layer.type == 'Data':
@@ -137,11 +137,9 @@ class CaffeTrainTask(TrainTask):
                         assert val_data_layer is None, 'cannot specify two test data layers'
                         val_data_layer = layer
             elif layer.type == 'SoftmaxWithLoss':
-                assert loss_layer is None, 'cannot specify two loss layers'
-                loss_layer = layer
+                loss_layers.append(layer)
             elif layer.type == 'Accuracy':
-                assert accuracy_layer is None, 'cannot specify two accuracy layers'
-                accuracy_layer = layer
+                accuracy_layers.append(layer)
             else:
                 hidden_layers.layer.add().CopyFrom(layer)
                 if len(layer.bottom) == 1 and len(layer.top) == 1 and layer.bottom[0] == layer.top[0]:
@@ -152,25 +150,28 @@ class CaffeTrainTask(TrainTask):
                     for bottom in layer.bottom:
                         bottoms[bottom] = True
 
-        assert loss_layer is not None, 'must specify a SoftmaxWithLoss layer'
-        assert accuracy_layer is not None, 'must specify an Accuracy layer'
-        if not has_val_set:
-            self.logger.warning('Discarding Data layer for validation')
-            val_data_layer = None
-
-        output_name = None
-        for name in tops:
-            if name not in bottoms:
-                assert output_name is None, 'network cannot have more than one output'
-                output_name = name
-        assert output_name is not None, 'network must have one output'
-        for layer in hidden_layers.layer:
-            if output_name in layer.top and layer.type == 'InnerProduct':
-                layer.inner_product_param.num_output = len(self.labels)
-                break
-
         if train_data_layer is None:
             assert val_data_layer is None, 'cannot specify a test data layer without a train data layer'
+
+        assert len(loss_layers) > 0, 'must specify a loss layer'
+
+        network_outputs = []
+        for name in tops:
+            if name not in bottoms:
+                #XXX
+                print 'Found network output:', name
+                network_outputs.append(name)
+        assert len(network_outputs), 'network must have an output'
+
+        # Update num_output for any output InnerProduct layers automatically
+        for layer in hidden_layers.layer:
+            if layer.type == 'InnerProduct':
+                for top in layer.top:
+                    if top in network_outputs:
+                        #XXX
+                        print 'updating num_output in %s (%s)' % (layer.name, layer.type)
+                        layer.inner_product_param.num_output = len(self.labels)
+                        break
 
         ### Write train_val file
 
@@ -242,28 +243,8 @@ class CaffeTrainTask(TrainTask):
         train_val_network.MergeFrom(hidden_layers)
 
         # output layers
-        if loss_layer is not None:
-            train_val_network.layer.add().CopyFrom(loss_layer)
-            loss_layer = train_val_network.layer[-1]
-        else:
-            loss_layer = train_val_network.layer.add(
-                type = 'SoftmaxWithLoss',
-                name = 'loss')
-            loss_layer.bottom.append(output_name)
-            loss_layer.bottom.append('label')
-            loss_layer.top.append('loss')
-
-        if accuracy_layer is not None:
-            train_val_network.layer.add().CopyFrom(accuracy_layer)
-            accuracy_layer = train_val_network.layer[-1]
-        elif self.dataset.val_db_task():
-            accuracy_layer = train_val_network.layer.add(
-                    type = 'Accuracy',
-                    name = 'accuracy')
-            accuracy_layer.bottom.append(output_name)
-            accuracy_layer.bottom.append('label')
-            accuracy_layer.top.append('accuracy')
-            accuracy_layer.include.add(phase = caffe_pb2.TEST)
+        train_val_network.layer.extend(loss_layers)
+        train_val_network.layer.extend(accuracy_layers)
 
         with open(self.path(self.train_val_file), 'w') as outfile:
             text_format.PrintMessage(train_val_network, outfile)
@@ -287,11 +268,12 @@ class CaffeTrainTask(TrainTask):
         deploy_network.MergeFrom(hidden_layers)
 
         # output layers
-        prob_layer = deploy_network.layer.add(
-                type = 'Softmax',
-                name = 'prob')
-        prob_layer.bottom.append(output_name)
-        prob_layer.top.append('prob')
+        if loss_layers[-1].type == 'SoftmaxWithLoss':
+            prob_layer = deploy_network.layer.add(
+                    type = 'Softmax',
+                    name = 'prob')
+            prob_layer.bottom.append(network_outputs[-1])
+            prob_layer.top.append('prob')
 
         with open(self.path(self.deploy_file), 'w') as outfile:
             text_format.PrintMessage(deploy_network, outfile)
