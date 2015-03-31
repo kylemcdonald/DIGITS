@@ -98,7 +98,6 @@ class CaffeTrainTask(TrainTask):
     @override
     def before_run(self):
         if isinstance(self.dataset, dataset.ImageClassificationDatasetJob):
-            assert self.read_labels(), 'could not read labels'
             self.save_prototxt_files()
         else:
             raise NotImplementedError()
@@ -141,8 +140,8 @@ class CaffeTrainTask(TrainTask):
             elif layer.type == 'Accuracy':
                 addThis = True
                 if layer.accuracy_param.HasField('top_k'):
-                    if layer.accuracy_param.top_k >= len(self.labels):
-                        self.logger.warning('Removing layer %s because top_k=%s while there are are only %s labels in this dataset' % (layer.name, layer.accuracy_param.top_k, len(self.labels)))
+                    if layer.accuracy_param.top_k >= len(self.get_labels()):
+                        self.logger.warning('Removing layer %s because top_k=%s while there are are only %s labels in this dataset' % (layer.name, layer.accuracy_param.top_k, len(self.get_labels())))
                         addThis = False
                 if addThis:
                     accuracy_layers.append(layer)
@@ -172,7 +171,7 @@ class CaffeTrainTask(TrainTask):
             if layer.type == 'InnerProduct':
                 for top in layer.top:
                     if top in network_outputs:
-                        layer.inner_product_param.num_output = len(self.labels)
+                        layer.inner_product_param.num_output = len(self.get_labels())
                         break
 
         ### Write train_val file
@@ -626,8 +625,6 @@ class CaffeTrainTask(TrainTask):
         """
         if not self.load_model(snapshot_epoch):
             return (None, None)
-        if not self.read_labels():
-            return (None, None)
 
         # Convert to float32 in [0,1] range
         caffe_image = np.array(image).astype('float32')/255.0
@@ -638,7 +635,7 @@ class CaffeTrainTask(TrainTask):
         indices = (-scores).argsort()
         predictions = []
         for i in indices:
-            predictions.append( (self.labels[i], scores[i]) )
+            predictions.append( (self.get_labels()[i], scores[i]) )
 
         visualizations = []
         if layers and layers != 'none':
@@ -784,8 +781,6 @@ class CaffeTrainTask(TrainTask):
         """
         if not self.load_model(snapshot_epoch):
             return (None, None)
-        if not self.read_labels():
-            return (None, None)
 
         caffe_images = []
         for image in images:
@@ -796,7 +791,7 @@ class CaffeTrainTask(TrainTask):
             caffe_images.append(image)
 
         scores = self.classifier.predict(caffe_images, oversample=False)
-        return (self.labels, scores)
+        return (self.get_labels(), scores)
 
     def has_model(self):
         """
