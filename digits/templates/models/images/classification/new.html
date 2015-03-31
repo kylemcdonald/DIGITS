@@ -447,8 +447,10 @@ function customizeNetwork(network, snapshot_list) {
                     </table>
                 </div>
                 <script>
-                    $(".btn.btn-sm").css('visibility', 'hidden');   // hide all the buttons
-                    $("#network-tab-previous").find(".form-control").css('visibility', 'hidden'); //hide all the select elements in "Previous Networks" tab
+                    // hide some buttons and form elements
+                    $("#network-tab-standard .btn.btn-sm").css('visibility', 'hidden');
+                    $("#network-tab-previous .btn.btn-sm").css('visibility', 'hidden');
+                    $("#network-tab-previous select").css('visibility', 'hidden');
 
                     var $stdtab_prev_clicked_tr = null;
                     $("input:radio[name=standard_networks]").click(function(){
