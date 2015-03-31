@@ -374,7 +374,7 @@ function customizeNetwork(network, snapshot_list) {
                     <table class="table">
                         <tr>
                             <th>Network</th>
-                            <th>Description</th>
+                            <th>Details</th>
                             <th>Intended image size</th>
                             <th></th>
                         </tr>
@@ -383,29 +383,25 @@ function customizeNetwork(network, snapshot_list) {
                             <td>{{network}} {{network.label}}</td>
                             {% if network.data == 'lenet' %}
                             <td>
-                                Yan LeCunn's classic network.
-                                <br>
                                 <a href="http://yann.lecun.com/exdb/lenet/" target="_blank">Home page</a>
                             </td>
-                            <td>28x28</td>
+                            <td>28x28 (gray)</td>
                             {% elif network.data == 'alexnet' %}
                             <td>
-                                Alex Krizhevsky's network.
-                                <br>
                                 <a href="http://papers.nips.cc/paper/4824-imagenet-classification-with-deep-convolutional" target="_blank">Original paper</a>
+                                [2012]
                             </td>
                             <td>256x256</td>
                             {% elif network.data == 'vgg-16' %}
                             <td>
-                                Visual Geometry Group's 16-layer network.
-                                <br>
-                                <a href="http://arxiv.org/pdf/1409.1556.pdf" target="_blank">Original paper</a>
+                                <a href="http://arxiv.org/abs/1409.1556" target="_blank">Original paper</a>
+                                [2014]
                             </td>
                             <td>256x256</td>
                             {% elif network.data == 'googlenet' %}
                             <td>
-                                Google's network.
                                 <a href="http://arxiv.org/abs/1409.4842" target="_blank">Original paper</a>
+                                [2014]
                             </td>
                             <td>256x256</td>
                             {% else %}

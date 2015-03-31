@@ -139,7 +139,13 @@ class CaffeTrainTask(TrainTask):
             elif layer.type == 'SoftmaxWithLoss':
                 loss_layers.append(layer)
             elif layer.type == 'Accuracy':
-                accuracy_layers.append(layer)
+                addThis = True
+                if layer.accuracy_param.HasField('top_k'):
+                    if layer.accuracy_param.top_k >= len(self.labels):
+                        self.logger.warning('Removing layer %s because top_k=%s while there are are only %s labels in this dataset' % (layer.name, layer.accuracy_param.top_k, len(self.labels)))
+                        addThis = False
+                if addThis:
+                    accuracy_layers.append(layer)
             else:
                 hidden_layers.layer.add().CopyFrom(layer)
                 if len(layer.bottom) == 1 and len(layer.top) == 1 and layer.bottom[0] == layer.top[0]:
@@ -158,8 +164,6 @@ class CaffeTrainTask(TrainTask):
         network_outputs = []
         for name in tops:
             if name not in bottoms:
-                #XXX
-                print 'Found network output:', name
                 network_outputs.append(name)
         assert len(network_outputs), 'network must have an output'
 
@@ -168,8 +172,6 @@ class CaffeTrainTask(TrainTask):
             if layer.type == 'InnerProduct':
                 for top in layer.top:
                     if top in network_outputs:
-                        #XXX
-                        print 'updating num_output in %s (%s)' % (layer.name, layer.type)
                         layer.inner_product_param.num_output = len(self.labels)
                         break
 
