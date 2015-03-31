@@ -144,8 +144,7 @@ $("#dataset").change(function() {
                             ></span>
                     </div>
                 </div>
-                (neat progress bar)
-
+                {# TODO: neat progress bar #}
                 <div class="form-group{{' has-error' if form.batch_size.errors}}">
                     {{form.batch_size.label}}
                     <div class="input-group">
@@ -198,7 +197,10 @@ showHideAdvancedLROptions();
 
                     <div class="form-group{{' has-error' if form.lr_step_size.errors}}">
                         {{form.lr_step_size.label}}
-                        {{form.lr_step_size(class='form-control learning-rate-option')}}
+                        <div class="input-group">
+                            {{form.lr_step_size(class='form-control learning-rate-option')}}
+                            <span class="input-group-addon">%</span>
+                        </div>
                     </div>
                     <div class="form-group{{' has-error' if form.lr_step_gamma.errors}}">
                         {{form.lr_step_gamma.label}}
@@ -206,7 +208,10 @@ showHideAdvancedLROptions();
                     </div>
                     <div class="form-group{{' has-error' if form.lr_multistep_values.errors}}">
                         {{form.lr_multistep_values.label}}
-                        {{form.lr_multistep_values(class='form-control learning-rate-option')}}
+                        <div class="input-group">
+                            {{form.lr_multistep_values(class='form-control learning-rate-option')}}
+                            <span class="input-group-addon">%</span>
+                        </div>
                     </div>
                     <div class="form-group{{' has-error' if form.lr_multistep_gamma.errors}}">
                         {{form.lr_multistep_gamma.label}}
@@ -230,7 +235,10 @@ showHideAdvancedLROptions();
                     </div>
                     <div class="form-group{{' has-error' if form.lr_sigmoid_step.errors}}">
                         {{form.lr_sigmoid_step.label}}
-                        {{form.lr_sigmoid_step(class='form-control learning-rate-option')}}
+                        <div class="input-group">
+                            {{form.lr_sigmoid_step(class='form-control learning-rate-option')}}
+                            <span class="input-group-addon">%</span>
+                        </div>
                     </div>
                     <div class="form-group{{' has-error' if form.lr_sigmoid_gamma.errors}}">
                         {{form.lr_sigmoid_gamma.label}}
@@ -240,86 +248,97 @@ showHideAdvancedLROptions();
                     <div id="visualize-lr" style="display:none;">
                         <a class="close" onClick="$('#visualize-lr').hide();return false;">&times;</a>
                         <br>
-                        <div id="visualize-lr-graph"></div>
+                        <div id="visualize-lr-graph" style="background:white;"></div>
                     </div>
 
                     <script>
-function showSelectedAdvancedLROptions() {
-    $("#advanced-lr-options input.learning-rate-option").parent().hide();
-
-    // Turn some back on
-    switch($("#lr_policy").val()) {
-        case 'step':
-            $("#lr_step_size").parent().show();
-            $("#lr_step_gamma").parent().show();
-            break;
-        case 'multistep':
-            $("#lr_multistep_values").parent().show();
-            $("#lr_multistep_gamma").parent().show();
-            break;
-        case 'exp':
-            $("#lr_exp_gamma").parent().show();
-            break;
-        case 'inv':
-            $("#lr_inv_gamma").parent().show();
-            $("#lr_inv_power").parent().show();
-            break;
-        case 'poly':
-            $("#lr_poly_power").parent().show();
-            break;
-        case 'sigmoid':
-            $("#lr_sigmoid_step").parent().show();
-            $("#lr_sigmoid_gamma").parent().show();
-            break;
-        default:
-            break;
-    }
-}
-function drawLRGraph(lr_data) {
-    var data = google.visualization.arrayToDataTable($.parseJSON(lr_data));
-    $("#visualize-lr").show();
-    new google.visualization.LineChart($("#visualize-lr-graph")[0]).
-        draw(data,
-                {
-                    height: 200,
-                    width: "100%",
-                    hAxis: {textPosition: 'none'},
-                    legend: {position: 'none'},
-                    chartArea: {
-                        left: "15%",
-                        top: "5%",
-                        width: "80%",
-                        height: "90%",
+                        function showHideAdvancedLROption(selector, show) {
+                            show = show || true;
+                            var element = $(selector);
+                            while (!element.hasClass('form-group')) {
+                                element = element.parent();
+                                if (element.attr('id') == 'advanced_lr_options')
+                                    // We've gone too far
+                                    return;
+                            }
+                            if (show)
+                                element.show();
+                            else
+                                element.hide();
                         }
-                    }
-            );
-}
+                        function showSelectedAdvancedLROptions() {
+                            $("#advanced-lr-options div.form-group").hide();
+                            showHideAdvancedLROption('#lr_policy');
 
-function getLRGraph() {
-    $.ajax("{{url_for('models_visualize_lr')}}",
-        {
-            type: "POST",
-            data: $(".learning-rate-option").serialize()
-            }
-        )
-    .done(function(data) {
-        drawLRGraph(data);
-        })
-    .fail(function(data) {
-            $("#visualize-lr-graph").html("");
-            errorAlert(data);
-        });
-    return false;
-}
+                            // Turn some back on
+                            switch($("#lr_policy").val()) {
+                                case 'step':
+                                showHideAdvancedLROption('#lr_step_size');
+                                showHideAdvancedLROption('#lr_step_gamma');
+                                break;
+                                case 'multistep':
+                                showHideAdvancedLROption('#lr_multistep_values');
+                                showHideAdvancedLROption('#lr_multistep_gamma');
+                                break;
+                                case 'exp':
+                                showHideAdvancedLROption('#lr_exp_gamma');
+                                break;
+                                case 'inv':
+                                showHideAdvancedLROption('#lr_inv_gamma');
+                                showHideAdvancedLROption('#lr_inv_power');
+                                break;
+                                case 'poly':
+                                showHideAdvancedLROption('#lr_poly_power');
+                                break;
+                                case 'sigmoid':
+                                showHideAdvancedLROption('#lr_sigmoid_step');
+                                showHideAdvancedLROption('#lr_sigmoid_gamma');
+                                break;
+                                default:
+                                break;
+                            }
+                        }
+                        function drawLRGraph(data) {
+                            $("#visualize-lr").show();
+                            c3.generate($.extend(true, data, {
+                                bindto: '#visualize-lr-graph',
+                                size: {height: 200},
+                                axis: {
+                                    x: {
+                                        label: {
+                                            text: 'Training (%)',
+                                            position: 'outer-center',
+                                        },
+                                    },
+                                },
+                                legend: {show: false},
+                            }));
+                        }
+                        function getLRGraph() {
+                            $.ajax("{{url_for('models_visualize_lr')}}",
+                            {
+                                type: "POST",
+                                data: $(".learning-rate-option").serialize()
+                            }
+                            )
+                            .done(function(data) {
+                                drawLRGraph($.parseJSON(data));
+                            })
+                            .fail(function(data) {
+                                $("#visualize-lr-graph").html("");
+                                errorAlert(data);
+                            });
+                            return false;
+                        }
 
-$("input.learning-rate-option").change(function() {
-        getLRGraph();
-        });
-$("select.learning-rate-option").change(function() {
-        showSelectedAdvancedLROptions();
-        getLRGraph();
-        });
-showSelectedAdvancedLROptions();
+                        $("input.learning-rate-option").change(function() {
+                            getLRGraph();
+                        });
+                        $("select.learning-rate-option").change(function() {
+                            showSelectedAdvancedLROptions();
+                            getLRGraph();
+                        });
+                        showSelectedAdvancedLROptions();
                     </script>
                 </div>
             </div>
