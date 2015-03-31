@@ -105,7 +105,9 @@ class CaffeTrainTask(TrainTask):
 
         self.caffe_log = open(self.path(self.CAFFE_LOG), 'a')
         self.saving_snapshot = False
-        self.last_unimportant_update = None
+        self.receiving_train_output = False
+        self.receiving_val_output = False
+        self.last_train_update = None
         return True
 
     def save_prototxt_files(self):
@@ -403,77 +405,61 @@ class CaffeTrainTask(TrainTask):
     @override
     def process_output(self, line):
         from digits.webapp import socketio
+        float_exp = '(NaN|[-+]?[0-9]*\.?[0-9]+(e[-+]?[0-9]+)?)'
 
         self.caffe_log.write('%s\n' % line)
         self.caffe_log.flush()
-
-        # parse caffe header
+        # parse caffe output
         timestamp, level, message = self.preprocess_output_caffe(line)
-
         if not message:
             return True
 
-        float_exp = '(NaN|[-+]?[0-9]*\.?[0-9]+(e[-+]?[0-9]+)?)'
-
-        # snapshot saved
-        if self.saving_snapshot:
-            self.logger.info('Snapshot saved.')
-            self.detect_snapshots()
-            self.send_snapshot_update()
-            self.saving_snapshot = False
-            return True
-
-        # loss updates
-        match = re.match(r'Iteration (\d+), \w*loss\w* = %s' % float_exp, message)
-        if match:
-            i = int(match.group(1))
-            l = match.group(2)
-            assert l.lower() != 'nan', 'Network reported NaN for training loss. Try decreasing your learning rate.'
-            l = float(l)
-            self.train_loss_updates.append((self.iteration_to_epoch(i), l))
-            self.logger.debug('Iteration %d/%d, loss=%s' % (i, self.solver.max_iter, l))
-            self.send_iteration_update(i)
-            self.send_data_update()
-            return True
-
-        # learning rate updates
-        match = re.match(r'Iteration (\d+), lr = %s' % float_exp, message)
-        if match:
-            i = int(match.group(1))
-            lr = match.group(2)
-            if lr.lower() != 'nan':
-                lr = float(lr)
-                self.lr_updates.append((self.iteration_to_epoch(i), lr))
-            self.send_iteration_update(i)
-            return True
-
-        # other iteration updates
+        # iteration updates
         match = re.match(r'Iteration (\d+)', message)
         if match:
             i = int(match.group(1))
-            self.send_iteration_update(i)
+            self.new_iteration(i)
+
+        # net output
+        match = re.match(r'(Train|Test) net output #(\d+): (\S*) = %s' % float_exp, message, flags=re.IGNORECASE)
+        if match:
+            phase = match.group(1)
+            index = int(match.group(2))
+            name = match.group(3)
+            value = match.group(4)
+            assert value.lower() != 'nan', 'Network outputted NaN for "%s" (%s phase). Try decreasing your learning rate.' % (name, phase)
+            value = float(value)
+
+            # Find the layer type
+            kind = '?'
+            for layer in self.network.layer:
+                if name in layer.top:
+                    kind = layer.type
+                    break
+
+            if phase.lower() == 'train':
+                self.save_train_output(name, kind, value)
+            elif phase.lower() == 'test':
+                self.save_val_output(name, kind, value)
             return True
 
-        # testing loss updates
-        match = re.match(r'Test net output #\d+: \w*loss\w* = %s' % float_exp, message, flags=re.IGNORECASE)
+        # learning rate updates
+        match = re.match(r'Iteration (\d+), lr = %s' % float_exp, message, flags=re.IGNORECASE)
         if match:
-            l = match.group(1)
-            if l.lower() != 'nan':
-                l = float(l)
-                self.val_loss_updates.append( (self.iteration_to_epoch(self.current_iteration), l) )
-                self.send_data_update()
+            i = int(match.group(1))
+            lr = float(match.group(2))
+            self.save_train_output('learning_rate', 'LearningRate', lr)
             return True
 
-        # testing accuracy updates
-        match = re.match(r'Test net output #(\d+): \w*acc\w* = %s' % float_exp, message, flags=re.IGNORECASE)
-        if match:
-            index = int(match.group(1))
-            a = match.group(2)
-            if a.lower() != 'nan':
-                a = float(a) * 100
-                self.logger.debug('Network accuracy #%d: %s' % (index, a))
-                self.val_accuracy_updates.append( (self.iteration_to_epoch(self.current_iteration), a, index) )
-                self.send_data_update(important=True)
+        # snapshot saved
+        if self.saving_snapshot:
+            if not message.startswith('Snapshotting solver state'):
+                self.logger.warning('caffe output format seems to have changed. Expected "Snapshotting solver state..." after "Snapshotting to..."')
+            else:
+                self.logger.info('Snapshot saved.')
+            self.detect_snapshots()
+            self.send_snapshot_update()
+            self.saving_snapshot = False
             return True
 
         # snapshot starting
@@ -523,68 +509,15 @@ class CaffeTrainTask(TrainTask):
             #self.logger.warning('Unrecognized task output "%s"' % line)
             return (None, None, None)
 
-    def send_iteration_update(self, it):
+    def new_iteration(self, it):
         """
-        Sends socketio message about the current iteration
+        Update current_iteration
         """
-        from digits.webapp import socketio
-
         if self.current_iteration == it:
             return
 
         self.current_iteration = it
-        self.progress = float(it)/self.solver.max_iter
-
-        socketio.emit('task update',
-                {
-                    'task': self.html_id(),
-                    'update': 'progress',
-                    'percentage': int(round(100*self.progress)),
-                    'eta': utils.time_filters.print_time_diff(self.est_done()),
-                    },
-                namespace='/jobs',
-                room=self.job_id,
-                )
-
-    def send_data_update(self, important=False):
-        """
-        Send socketio updates with the latest graph data
-
-        Keyword arguments:
-        important -- if False, only send this update if the last unimportant update was sent more than 5 seconds ago
-        """
-        from digits.webapp import socketio
-
-        if not important:
-            if self.last_unimportant_update and (time.time() - self.last_unimportant_update) < 5:
-                return
-            self.last_unimportant_update = time.time()
-
-        # loss graph data
-        data = self.loss_graph_data()
-        if data:
-            socketio.emit('task update',
-                    {
-                        'task': self.html_id(),
-                        'update': 'loss_graph',
-                        'data': data,
-                        },
-                    namespace='/jobs',
-                    room=self.job_id,
-                    )
-
-        # lr graph data
-        data = self.lr_graph_data()
-        if data:
-            socketio.emit('task update',
-                    {
-                        'task': self.html_id(),
-                        'update': 'lr_graph',
-                        'data': data,
-                        },
-                    namespace='/jobs',
-                    room=self.job_id,
-                    )
+        self.send_progress_update(self.iteration_to_epoch(it))
 
     def send_snapshot_update(self):
         """
